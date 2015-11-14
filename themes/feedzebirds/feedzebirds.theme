@@ -1,0 +1,226 @@
+<?php
+/**
+ * @file
+ * A slim, CSS-driven theme which does not depend on a template engine like phptemplate
+ */
+
+/**
+ * @file
+ * A slim, CSS-driven theme which does not depend on a template engine like phptemplate
+ */
+
+/**
+ * Implementation of hook_theme. Auto-discover theme functions.
+ */
+function feedzebirds_theme($existing, $type, $theme, $path) {
+  return drupal_find_theme_functions($existing, array($theme));
+}
+
+function feedzebirds_page($content, $show_blocks = TRUE, $show_messages = TRUE) {
+  global $user;
+
+  $language = $GLOBALS['language']->language;
+  $direction = $GLOBALS['language']->direction ? 'rtl' : 'ltr';
+
+  if (theme_get_setting('toggle_favicon')) {
+    drupal_set_html_head('<link rel="shortcut icon" href="'. check_url(theme_get_setting('favicon')) .'" type="image/x-icon" />');
+  }
+
+  $title = drupal_get_title();
+
+  // Get blocks before so that they can alter the header (JavaScript, Stylesheets etc.)
+  $blocks_right = theme_blocks('right');
+  $blocks_mobile = theme_blocks('mobile');
+
+  $ismobile = is_mobile();
+
+  $output  = "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">\n";
+  $output .= "<html xmlns=\"http://www.w3.org/1999/xhtml\" lang=\"$language\" xml:lang=\"$language\" dir=\"$direction\">\n";
+  $output .= "<head>\n";
+  $output .= drupal_get_html_head();
+  $output .= "<script type='text/javascript' src='https://ajax.googleapis.com/ajax/libs/jquery/1.7.0/jquery.min.js'></script>";
+  $output .= " <script type=\"text/javascript\" src=\"https://www.google.com/jsapi\"></script>\n";
+  $output .= " <title>". ($title ? strip_tags($title) ." | ". variable_get("site_name", "Drupal") : variable_get("site_name", "Drupal") ." | ". variable_get("site_slogan", "")) ."</title>\n";
+  if($ismobile) {
+    $output .= " <link rel=\"stylesheet\" href=\"".base_path().path_to_theme()."/mobile_style.css\">\n";
+  } else {
+    $output .= " <link rel=\"stylesheet\" href=\"".base_path().path_to_theme()."/style.css\">\n";
+    $output .= " <link rel=\"stylesheet\" href=\"".base_path().path_to_theme()."/common.css\">\n";
+    $output .= drupal_get_css();
+  }
+  $output .= drupal_get_js();
+  $output .= "<script type='text/javascript' src='".base_path().path_to_theme()."/js/ajaxstuff.js'></script>\n";
+  $output .= "</head>\n";
+  $output .= "<body>\n";
+  $output .= " <div id=\"wrapper\">\n";
+  if(!$ismobile) {
+    $output .= "  <div id=\"left-decoration\"><img src=\"/themes/feedzebirds/Decoration_Transparent.png\" /></div>";
+  }
+  $output .= "  <div id=\"content\">\n";
+  $output .= "  <div id=\"header\">";
+
+  if ($logo = theme_get_setting('logo')) {
+    $output .= "  <a href=\"". url() ."\" title=\"". t('Home') ."\"><img src=\"$logo\" alt=\"". t('Home') ."\" /></a>";
+  }
+/*  $output .= "<span style=\"float: right; font-size: 1.15em;\">".
+             "<a href=\"http://www.feedzebirds.com/feedzebirds-ipo\">Own a piece of FeedZeBirds</a></span>";*/
+  $output .= "</div>\n";
+
+  if($ismobile && $show_blocks && !empty($blocks_mobile)) {
+    $output .= "  <div id=\"mobile-blocks\">$blocks_mobile</div>\n";    
+  }
+
+  if(drupal_is_front_page()) {
+    $output .= "\n<img src=\"".base_path().path_to_theme()."/img/option-bar.png\" id=\"opt-bar-bird\">\n";
+  }
+
+  $primary_links = theme('links', menu_primary_links(), array('class' => 'links', 'id' => 'navlist'));
+  $secondary_links = theme('links', menu_secondary_links(), array('class' => 'links', 'id' => 'subnavlist'));
+  if (isset($primary_links) || isset($secondary_links)) {
+    $output .= ' <div class="navlinks">';
+    if (isset($primary_links)) {
+      $output .= $primary_links;
+    }
+    if (isset($secondary_links)) {
+      $output .= $secondary_links;
+    }
+    $output .= " </div>\n";
+  }
+
+  $output .= "   <div id=\"main\">\n";
+  if ($title) {
+//    $output .= theme("breadcrumb", drupal_get_breadcrumb());
+//    $output .= "<h2>$title</h2>";
+  }
+
+  if ($tabs = theme('menu_local_tasks')) {
+    $output .= $tabs;
+  }
+
+  if ($show_messages) {
+    $output .= theme('status_messages');
+  }
+
+  $output .= theme('help');
+
+  $output .= "\n<div id=\"loltent\"><!-- begin content -->\n";
+
+  $amtst = $_GET['amtstyle'] == "cpm" ? "cpm" : "earn";
+  $sort = $_GET['sort'] == "date" ? "date" : "cpm";
+  $hidemine = $_GET['hidemine'] == "1" ? 1 : 0;
+  $hidefed = $_GET['hidefed'] == "1" ? 1 : 0;
+
+  if(drupal_is_front_page()) {
+    $output .= "\n<div id=\"options-bar\" class=\"teaser\">\n";
+		$oq = "http://".$_SERVER['HTTP_HOST']."?"."hidemine=".
+          $hidemine."&hidefed=".$hidefed."&amtstyle=".
+          $amtst."&sort=".$sort;
+    if($hidemine) {
+      $newQ = str_replace("hidemine=1", "hidemine=0", $oq);
+      $output .= "<a href=\"".$newQ."\">Show Mine</a>";
+    } else {
+      $newQ = str_replace("hidemine=0", "hidemine=1", $oq);
+      $output .= "<a href=\"".$newQ."\">Hide Mine</a>";
+    }
+    if($hidefed) {
+      $newQ = str_replace("hidefed=1", "hidefed=0", $oq);
+      $output .= "<a href=\"".$newQ."\">Show Fed</a>";
+    } else {
+      $newQ = str_replace("hidefed=0", "hidefed=1", $oq);
+      $output .= "<a href=\"".$newQ."\">Hide Fed</a>";
+    }
+    if($ismobile) $output .= "<br>";
+    if($amtst == "cpm") {
+      $newQ = str_replace("amtstyle=cpm", "amtstyle=earn", $oq);
+      $output .= "<a href=\"".$newQ."\">Show Earnings</a>";
+    } else {
+      $newQ = str_replace("amtstyle=earn", "amtstyle=cpm", $oq);
+      $output .= "<a href=\"".$newQ."\">Show CPM</a>";
+    }
+    if($sort == "cpm") {
+      $newQ = str_replace("sort=cpm", "sort=date", $oq);
+      $output .= "<a class=\"last\" href=\"".$newQ."\">Sort by Date</a>";
+    } else {
+      $newQ = str_replace("sort=date", "sort=cpm", $oq);
+      $output .= "<a class=\"last\" href=\"".$newQ."\">Sort by CPM</a>";
+    }
+  	$output .= "   </div>\n";
+  }
+
+  $output .= $content;
+//  $output .= drupal_get_feeds();
+  $output .= "\n</div><!-- end content -->\n";
+
+  $output .= " <div id=\"footer\">";
+
+  if($ismobile) {
+    $footer = "<span style=\"margin: 2em;\"><a href=\"/learn-more\">";
+    $footer .= t('Learn More')."</a> ";
+    $footer .= "| <a href=\"/bitcoin\">";
+    $footer .= t('Bitcoins, What?');
+    $footer .= "</a> | <a href=\"/faq\">".t('FAQ')."</a> | <a href=\"/fees\">";
+    $footer .= t('Fees')."</a></span>".
+              "<p>".t('All rights reserved')." :: FeedZeBirds :: 2011</p>";
+  } else {
+    $footer = "<span style=\"margin: 2em;\"><a href=\"/learn-more\">";
+    $footer .= t('Learn More')."</a> ";
+    $footer .= "| <a href=\"/bitcoin\">";
+    $footer .= t('Bitcoins, What?')."</a>   |   <a ".
+                "</a> | <a href=\"/faq\">".t('FAQ')."</a> | <a href=\"/fees\">".
+                t('Fees')."</a>  |   <a href=\"/privacy\">".
+                t('Privacy Policy')."</a>  |   <a ".
+               "href=\"/terms\">".t('Terms of Use')."</a>  |   <a ".
+               "href=\"/contact\">Contact</a>  |   <a ".
+               "href=\"/statistics\">Statistics</a></span>".
+               "<p>".t('All rights reserved')." :: FeedZeBirds :: 2011</p>";
+  }
+  $output .= $footer."</div>\n";
+
+  $output .= "   </div>\n";
+  $output .= "   </div>\n";
+
+  $output .=  theme_closure();
+  $output .= "  </div>";
+
+  if ($show_blocks && !empty($blocks_right) && !$ismobile) {
+    $output .= "   <div id=\"sidebar-right\">$blocks_mobile.$blocks_right</div>\n";
+  }
+
+  $output .= " </div>";
+  $output .= " </body>\n";
+  $output .= "</html>\n";
+
+  return $output;
+}
+
+function feedzebirds_node($node, $teaser = 0, $page = 0) {
+  global $user;
+
+  module_load_include('inc', 'twitter');
+  $twaccount = twitter_twitter_accounts($user);
+  $twaccount = twitter_account_load($twaccount[0]->id);
+
+  $feeding = node_load(array("type" => "feeding", "uid" => $user->uid, "title" => $node->title."-feeding"));
+
+  $output  = "<div class=\"node". ((!$node->status) ? ' node-unpublished' : '') . (($node->sticky) ? ' sticky' : '') ."\">\n";
+
+  if(isset($node->body) && $node->type == "campaign") {
+    module_load_include('inc', 'bb_arithmetic');
+    $output .= printCampaignFull($node->title);
+  } elseif(isset($node->body)) {
+   // $fbody = check_markup($node->body);
+    $output .= " <div class=\"content\"><!--begin content div-->\n";
+    $output .= $node->body;
+    $output .= " </div><!--end content div-->\n";
+  }
+
+  $output .= "</div>\n";
+
+  return $output;
+}
+
+function feedzebirds_help() {
+  if ($help = menu_get_active_help()) {
+    return '<div class="help">'. $help .'</div><hr />';
+  }
+}

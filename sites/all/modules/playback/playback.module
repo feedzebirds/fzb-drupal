@@ -1,0 +1,113 @@
+<?php
+
+/**
+ * Implementation of hook_meu()
+ */
+function playback_menu() {
+  $items = array();
+
+  $items['playback/playpause'] = array(
+    'title' => 'Playback Play/Pause',
+    'access callback' => TRUE,
+    'page callback' => 'playback_playpause',
+    'type' => MENU_CALLBACK
+  );
+
+  $items['playback/cancel'] = array(
+    'title' => 'Playback Cancel',
+    'access callback' => TRUE,
+    'page callback' => 'playback_cancel',
+    'type' => MENU_CALLBACK
+  );
+
+  $items['playback/modify'] = array(
+    'title' => 'Playback Modify',
+    'access callback' => TRUE,
+    'page callback' => 'playback_modify',
+    'type' => MENU_CALLBACK
+  );
+
+
+  return $items;
+}
+
+/**
+ * Implementation of hook_perm()
+ */
+function playback_perm() {
+  return array('playback_perm_is_useless');
+}
+
+function playback_cancel() {
+  global $user;
+  $user = user_load($user->uid);
+  $select = sprintf("SELECT * FROM campaign WHERE uid=".$user->uid." AND code='%s'", $_POST['title']);
+  $result = db_query($select);
+  $campaign = db_fetch_object($result);
+  if(empty($campaign)) return;
+
+  $select = "SELECT * FROM bitcoin_address WHERE bid=".$campaign->bid;
+  $result = db_query($select);
+  $address = db_fetch_object($result);
+  if(empty($address)) return;
+
+  if($address->received > 0) {
+    $insert = "INSERT INTO refund (cid, uid, amount, sent, created, updated) VALUES(".
+              $campaign->cid.", ".$user->uid.", ".round(fundsRemaining($campaign)/0.9).
+              ", 0, ".time().", ".time().")";
+watchdog("debug", $insert);
+    db_query($insert);
+    $update = sprintf("UPDATE campaign SET active=0 WHERE uid=".$user->uid." AND code='%s'", $_POST['title']);
+    db_query($update);
+
+    echo "canceled";
+  }
+}
+
+function playback_playpause() {
+  global $user;
+
+  $select = sprintf("SELECT * FROM campaign WHERE uid=".$user->uid." AND code='%s'", $_POST['title']);
+  $result = db_query($select);
+  $campaign = db_fetch_object($result);
+  if(empty($campaign)) return;
+
+  $select = "SELECT * FROM bitcoin_address WHERE cid=".$campaign->cid;
+  $result = db_query($select);
+  $address = db_fetch_object($result);
+  if(empty($address)) return;
+
+  if($campaign->active == 1) {
+    $update = sprintf("UPDATE campaign SET active=0 WHERE uid=".$user->uid." AND code='%s'", $_POST['title']);
+    db_query($update);    
+    echo "paused";
+    return;
+  } elseif($address->received > 0) {
+    $update = sprintf("UPDATE campaign SET active=1 WHERE uid=".$user->uid." AND code='%s'", $_POST['title']);
+    db_query($update);
+
+    echo "pause";
+    return;
+  }
+  echo "play";
+}
+
+function playback_modify() {
+  global $user;
+
+  $newcpm = $_POST['cpm'];
+  if(!is_numeric($newcpm) || $newcpm < 0.00001) {
+    echo "badcpm";
+    return;
+  }
+
+  $select = sprintf("SELECT * FROM campaign WHERE uid=".$user->uid." AND code='%s'", $_POST['title']);
+  $result = db_query($select);
+  $campaign = db_fetch_object($result);
+  if(empty($campaign)) return;
+
+  $update = sprintf("UPDATE campaign SET cpm=".floatToInt($newcpm)." WHERE uid=".$user->uid." AND code='%s'", $_POST['title']);
+  db_query($update);
+
+  echo $newcpm;
+}

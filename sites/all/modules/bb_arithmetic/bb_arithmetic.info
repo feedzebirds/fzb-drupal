@@ -1,0 +1,8 @@
+name = bb_arithmetic
+description = Arithmetic Util Module.
+package = "bearbones"
+core = 6.x
+
+version = "6.x"
+core = "6.x"
+

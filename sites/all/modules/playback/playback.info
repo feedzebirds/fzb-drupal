@@ -1,0 +1,7 @@
+name = Playback
+description = Ajax Playback callbacks for buttons.
+package = "bearbones"
+core = 6.x
+
+version = "6.x"
+core = "6.x"

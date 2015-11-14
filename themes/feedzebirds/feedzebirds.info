@@ -1,0 +1,10 @@
+name = Feedzebirds
+description = Feedzebirds theme
+regions[right] = Right sidebar
+regions[mobile] = Mobile blocks
+features[] = logo
+features[] = favicon
+features[] = name
+features[] = slogan
+version = 0.1
+core = 6.x

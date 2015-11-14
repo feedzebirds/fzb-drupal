@@ -1,0 +1,7 @@
+name = bbutil
+description = Utilities
+package = "Bearbones Util"
+core = 6.x
+
+version = "6.x"
+core = "6.x"

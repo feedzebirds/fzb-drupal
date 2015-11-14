@@ -1,0 +1,257 @@
+<?php
+
+/**
+ * Implementation of hook_perm()
+ */
+function bb_arithmetic_perm() {
+  return array('bb_arithmetic_perm_is_useless');
+}
+
+function floatToInt($float) {
+  return round($float*1e8);
+}
+
+function intToFloat($int) {
+  return $int/1e8;
+}
+
+function filterAmount($amt) {
+  if(!is_numeric($amt)) return FALSE;
+  if($amt == 0) return 0;
+  elseif($amt > 0.0001) return $amt;
+  elseif($amt > 0.00001) return number_format($amt, 5);
+  elseif($amt > 0.000001) return number_format($amt, 6);
+  elseif($amt > 0.0000001) return number_format($amt, 7);
+  else return number_format($amt, 8);
+}
+
+function getRetweetValue($twaccount, $campaign) {
+  $base = $twaccount->followers_count*$campaign->cpm/1000*0.9;
+  $remaining = fundsRemaining($campaign);
+  if($base > $remaining) return $remaining;
+  return round($base);
+}
+
+function fundsRemaining($campaign) {
+  $select = "SELECT * FROM bitcoin_address WHERE bid=".$campaign->bid;
+  $result = db_query($select);
+  $address = db_fetch_object($result);
+  if(empty($address)) return 0;
+
+  $received = $address->received;
+
+  $paid = 0;
+  $select = "SELECT sum(amount) AS paid, sum(fee) AS fee FROM feeding WHERE cid=".$campaign->cid;
+  $result = db_query($select);
+  $row = db_fetch_object($result);
+  if(!empty($row)) {
+    $paid = $row->paid;
+    $paid += $row->fee;
+  }
+
+  $select = "SELECT sum(amount) AS paid FROM refund WHERE cid=".$campaign->cid;
+  $result = db_query($select);
+  $row = db_fetch_object($result);
+  if(!empty($row)) {
+    $paid += $row->paid;
+  }
+
+  $remaining = round(($received - $paid)*0.9);
+  if($remaining <= 0) {
+    db_query("UPDATE campaign SET active=0 WHERE cid=".$campaign->cid);
+    $campaign->active = 0;
+  }
+  if($remaining < 0) {
+    $remaining = 0;
+    watchdog("WARN", "Funds remaining less than 0 for campaign: ".$campaign->code);
+  }
+  return $remaining;
+}
+
+function getUserBalance($uid) {
+  $user = user_load($uid);
+  if(!$user) return 0;
+
+  $select = sprintf("SELECT SUM(amount) AS bal FROM feeding WHERE sent=0 AND uid=%d", $uid);
+  $result = db_query($select);
+  $row = db_fetch_object($result);
+
+  if(empty($row)) return 0;
+  return $row->bal;
+}
+
+function getUserRefundBal($uid) {
+  $user = user_load($uid);
+
+  $select = sprintf("SELECT SUM(amount) AS bal FROM refund WHERE sent=0 AND uid=%d", $uid);
+  $result = db_query($select);
+  $row = db_fetch_object($result);
+
+  if(empty($row)) return 0;
+  return $row->bal;
+}
+
+function getBeaksFed($campaign) {
+  $select = "SELECT sum(beaks_fed) AS fed FROM feeding WHERE cid=".$campaign->cid;
+  $result = db_query($select);
+  $feed = db_fetch_object($result);
+
+  if(empty($feed)) return 0;
+  return $feed->fed;
+}
+
+function numFeedings($campaign) {
+  $select = "SELECT fid FROM feeding WHERE cid=".$campaign->cid;
+  $result = db_query($select);
+  return db_affected_rows();
+}
+
+function printCampaignSum($cid) {
+  global $user;
+
+  module_load_include('inc', 'twitter');
+  $twaccount = twitter_twitter_accounts($user);
+  $twaccount = twitter_account_load($twaccount[0]->id);
+
+  $cselect = "SELECT * FROM campaign WHERE cid=".$cid;
+  $cresult = db_query($cselect);
+  $campaign = db_fetch_object($cresult);
+
+  if(empty($campaign)) return "couldn't find campaign";
+
+  $fselect = "SELECT * FROM feeding WHERE cid=".$cid." AND uid=".$user->uid;
+  $fresult = db_query($fselect);
+  $fro = db_fetch_object($fresult);
+  $feeding = NULL;
+  if($fro) {
+    $feeding = $fro;
+  }
+
+  $output  = "<div class=\"node". ((!$campaign->active) ? ' node-unpublished' : '')."\">\n";
+
+  if(($user->uid != $campaign->uid && !empty($feeding)) || ($user->uid == $campaign->uid)) {
+    $output .= "<div class=\"content\"><div class='teaser-light'>\n";
+  } else {
+    $output .= "<div class=\"content\"><div class='teaser'>\n";
+  }
+
+  $cpm = round($campaign->cpm*0.9);
+
+  if(!$user->uid || $_GET['amtstyle'] == 'cpm') {
+    $output .= "<span class=\"highlighter\" style=\"width:50px; float: right; text-align: right;\" id=\"".$campaign->code."-message\">".
+               filterAmount(intToFloat($cpm))."<br>btc</span>";
+  } elseif($user->uid != $campaign->uid && !empty($feeding)) {
+    $output .= "<span class=\"highlighter\" style=\"width:50px; float: right; text-align: right;\" id=\"".$campaign->code."-message\">".
+               filterAmount(intToFloat($feeding->amount))."<br>earned</span>";
+  } elseif($user->uid == $campaign->uid) {
+    $amount = intToFloat(round(getRetweetValue($twaccount, $campaign)));
+    $output .= "<span class=\"highlighter\" style=\"width:50px; float: right; text-align: right;\" id=\"".$campaign->code."-message\">".
+               filterAmount($amount)."<br>your ad</span>";
+  } else {
+    $amount = intToFloat(round(getRetweetValue($twaccount, $campaign)));
+    $output .= "<span class=\"highlighter\" style=\"width:50px; float: right; text-align: right;\" id=\"".$campaign->code."-message\">".
+               filterAmount($amount)."<br>btc</span>";
+  }
+
+  $fbody = check_markup($campaign->body);
+  $output .= "<div style=\"width: 85%\"><span><a href=\"/".$campaign->code."\" style=\"color: #4C4344;\">".$fbody.
+             "<br>#FZB #spon feedzebirds.com/".$campaign->code."</a></span></div>";
+
+  if($user->uid && $user->uid != $campaign->uid && empty($feeding)) {
+    $output .= "<span class=\"retweet-highlighter\" style=\"display: block; float:left; cursor: pointer; text-decoration: underline;\" id=\"".
+               $campaign->code."\"><img src=\"/themes/feedzebirds/favicon.gif\" style=\"vertical-align: bottom;\"/>retweet</span>";
+  }
+  $output .= " </div></div></div>\n";
+
+  return $output;
+}
+
+function printCampaignFull($code = "", $cid = 0) {
+  $campaign = NULL;
+  if(empty($cid)) {
+    $cselect = "SELECT * FROM campaign WHERE code='".$code."'";
+  } elseif(empty($code)) {
+    $cselect = "SELECT * FROM campaign WHERE cid=".$cid;
+  }
+  $cresult = db_query($cselect);
+  $campaign = db_fetch_object($cresult);
+  if(empty($campaign)) {
+    return "campaign not found";
+  }
+
+  $aselect = "SELECT * FROM bitcoin_address WHERE bid=".$campaign->bid;
+  $aresult = db_query($aselect);
+  $address = db_fetch_object($aresult);
+  if(empty($address)) {
+    return "Campaign is incomplete. Missing Bitcoin address.";
+  }
+  $cpm = round($campaign->cpm*0.9);
+
+  $output .= " <div class=\"content\"><!--begin content div-->\n";
+  $output .= "<h2 style=\"float: left;\">FeedZeBirds.com<span class=\"highlighter\">/".$campaign->code."</span></h2>\n";
+
+  $remaining = fundsRemaining($campaign);
+
+  if($campaign->active == 1) {
+    $output .= "<div style=\"float: right;\">campaign <span class=\"playback-highlighter\" id=\"".$campaign->code."\">ON</span></div>";
+  } else {
+    $output .= "<div style=\"float: right;\">campaign <span class=\"playback-highlighter\" style=\"color: red;\" id=\"".$campaign->code.
+    "\">OFF</span></div>";
+  }
+
+  $output .= "<div style=\"width: 100%;\">";
+  $output .= "<a href=\"/\">see more tweets</a></div>";
+
+  $fbody = check_markup($campaign->body);
+  $output .= "<div class='individual-campaign-entry'><span style=\"float: left; margin-top: 1em; width: 100%;\">".
+             $fbody."<br>#FZB #spon feedzebirds.com/".$campaign->code."</span>";
+
+  if($user->uid && $user->uid != $campaign->uid && empty($feeding) && $node->promote) {
+    $output .= "<span class=\"full-retweet-highlighter\" style=\"float:left; margin-top: 1em; cursor: pointer; text-decoration: underline;\"".
+             " id=\"".$campaign->code."-retweet\"><img src=\"/themes/feedzebirds/favicon.gif\" style=\"vertical-align: ".
+             "bottom;\"/>retweet</span>";
+  }
+
+  $output .= "</div>";
+
+  $output .= "<div id=\"remainingfunds-div\" style=\"float: left; width: 33%; margin-top: 1em;\"><p>".
+             "Remaining Funds</p><span class=\"highlighter\">".filterAmount(intToFloat($remaining))."</span>btc</div>";
+  if($user->uid == $campaign->uid) {
+    $output .= "<div id=\"cpm-div\" style=\"float: left; width: 32%; margin-right: 1%; margin-top: 1em;\"><p>".
+               "Paid per 1000 followers</p><input type=\"text\" size=\"4\" id=\"".$campaign->code.
+               "-cpmin\" value=\"".filterAmount(intToFloat($cpm/0.9))."\"></input> <span class=\"changecpm\" id=\"".
+               $campaign->code.
+               "-modify\" style=\"color: #4C4344; font-size: 1em; text-decoration: underline;\">Update</span></div>";
+  } else {
+    $output .= "<div id=\"cpm-div\" style=\"float: left; width: 32%; margin-right: 1%; margin-top: 1em;\"><p>".
+               "Paid per 1000 followers</p><span class=\"highlighter\">".filterAmount(intToFloat($cpm))."</span>btc</div>";
+  }
+  $beakstofeed = floor($remaining/$cpm*1000);
+
+  $output .= "<div id=\"beakstofeed-div\" style=\"float: left; width: 33%; margin-top: 1em;\"><p>Beaks to Feed</p>".
+             "<span class=\"highlighter\">".$beakstofeed."</span></div>";
+  $output .= "<div id=\"spacer\" style=\"width: 100%;\"></div>";
+  $nextstyle = "margin-left: 33%;";
+  if($campaign->show_beaks_fed == 1) {
+    $nextstyle = "float: left;";
+    $output .= "<div id=\"beaksfed-div\" style=\"float: left; width: 33%;\"><p>Beaks Fed</p><span class=\"highlighter\">".
+               getBeaksFed($campaign)."</span></div>";
+  }
+  if($user->uid) {
+    $amount = intToFloat(round(getRetweetValue($twaccount, $campaign)));
+    $output .= "<div style=\"".$nextstyle." width: 33%;\"><span style=\"font-size: 1.3em;\">Your Followers</span><br>".
+               "<span class=\"highlighter\" style=\"font-size: 2em; \">".$twaccount->followers_count."</span></div>";
+    $output .= "<div><span style=\"font-size: 1.3em;\">You Will Earn</span><br><span class=\"highlighter\" style=\"font-size: 2em; \">".
+               filterAmount($amount)."</span><span>btc</span></div>";
+  }
+  if($address->is_public == 1 && $address->server != 1) {
+    $output .= "<div style=\"width: 100%; margin-top: 6em;\"><span>Donate to this campaign: </span><span class=\"highlighter\">".
+               $address->address."</span></div>";
+  } elseif($address->uid == $user->uid && $address->server != 1) {
+    $output .= "<div style=\"width: 100%; margin-top: 6em;\"><span>Fund this campaign: </span><span class=\"highlighter\">".
+               $address->address."</span></div>";
+  }
+  $output .= " </div><!--end content div-->\n";
+  return $output;
+}
+?>
